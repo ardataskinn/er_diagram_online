@@ -65,6 +65,7 @@
     <label>Cardinality etiketi</label>
     <input type="text" id="pCard" list="cards" placeholder="1, N, M, 0..1 ...">
     <datalist id="cards"><option value="1"><option value="N"><option value="M"><option value="0..1"><option value="1..N"><option value="0..N"></datalist>
+    <small id="weakNote" style="display:none">Weak entity bağlantısı otomatik olarak total participation ve key constraint olur.</small>
     <button class="btn" id="pStraight" style="margin-top:8px;justify-content:center">Çizgiyi düzleştir</button>
     <small>Partial participation = ince çizgi (varsayılan), total = kalın çizgi.<br>Çizgiyi bükmek için seçince ortada çıkan yuvarlağı sürükleyin.</small>
   </div>
@@ -203,6 +204,13 @@ function renderSoon(){ // coalesce multiple pointer events into one render per f
   raf=requestAnimationFrame(()=>{raf=0;render();});
 }
 
+// A weak entity connected to a relationship always has total participation and a key constraint
+function isWeakLink(e){
+  const A=nodeById(e.a), B=nodeById(e.b); if(!A||!B) return false;
+  const rel=n=>TYPES[n.type].kind==='diamond';
+  return (A.type==='weak'&&rel(B))||(B.type==='weak'&&rel(A));
+}
+
 function render(){
   world.innerHTML='';
   if(sel) msel.clear();
@@ -221,6 +229,7 @@ function render(){
       const off=(same.indexOf(e)-(same.length-1)/2)*34;
       sx=-(Q.y-P.y)/l*off; sy=(Q.x-P.x)/l*off;
     }
+    const weakLink=isWeakLink(e), eTotal=e.total||weakLink, eKey=e.key||weakLink;
     const bend=e.bend||0;
     const L=Math.hypot(B.x-A.x,B.y-A.y)||1, nx=-(B.y-A.y)/L, ny=(B.x-A.x)/L;
     let pa,pb,C;
@@ -238,9 +247,9 @@ function render(){
     const d=bend?`M${pa.x},${pa.y} Q${C.x},${C.y} ${pb.x},${pb.y}`:`M${pa.x},${pa.y} L${pb.x},${pb.y}`;
     el('path',{d,fill:'none',stroke:'transparent','stroke-width':16},g);
     // total participation = thick line, partial = thin line
-    el('path',{d,fill:'none',stroke:col,'stroke-width':e.total?5:2,'pointer-events':'none'},g);
+    el('path',{d,fill:'none',stroke:col,'stroke-width':eTotal?5:2,'pointer-events':'none'},g);
     const aRel=TYPES[A.type].kind==='diamond', bRel=TYPES[B.type].kind==='diamond';
-    if(e.key&&(aRel||bRel)){
+    if(eKey&&(aRel||bRel)){
       const atB=bRel, tip=atB?pb:pa, u=atB?tb:{x:-ta.x,y:-ta.y}; // u points toward the tip
       const bx=tip.x-u.x*16, by=tip.y-u.y*16, px=-u.y, py=u.x;
       el('polygon',{points:`${tip.x},${tip.y} ${bx+px*7},${by+py*7} ${bx-px*7},${by-py*7}`,fill:col,'pointer-events':'none'},g);
@@ -485,7 +494,10 @@ function updatePanel(){
     const n=nodeById(sel.id); $('pText').value=n.text; $('pType').value=n.type;
   }else{
     const e=state.edges.find(e=>e.id===sel.id);
-    $('pTotal').checked=e.total; $('pKey').checked=e.key; $('pCard').value=e.card;
+    const wl=isWeakLink(e);
+    $('pTotal').checked=e.total||wl; $('pKey').checked=e.key||wl; $('pCard').value=e.card;
+    $('pTotal').disabled=$('pKey').disabled=wl;
+    $('weakNote').style.display=wl?'block':'none';
   }
 }
 const curEdge=()=>state.edges.find(e=>e.id===sel.id);
