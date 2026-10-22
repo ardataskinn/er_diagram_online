@@ -43,6 +43,7 @@
   <h4>Araç</h4>
   <button class="btn" id="tSelect"><span>↖</span> Seç / Taşı (V)</button>
   <button class="btn" id="tConnect"><span>⟷</span> Bağla (C)</button>
+  <button class="btn" id="tDraw"><span>✎</span> Serbest kutu çiz (D)</button>
   <h4>Entity</h4><div id="pEnt"></div>
   <h4>Attribute</h4><div id="pAttr"></div>
   <h4>Relationship</h4><div id="pRel"></div>
@@ -89,7 +90,7 @@
 
 <div id="hint" class="panel">
   <b>Boş alanda sürükle</b>: çoklu seç · <b>Shift+tık</b>: seçime ekle/çıkar · <b>Boşluk+sürükle</b> veya sağ/orta tuş: kaydır · <b>Ctrl/⌘ + tekerlek</b>: yakınlaştır · <b>Çift tık</b>: ismi düzenle ·
-  <b>Bağla aracı</b>: şekilden şekle sürükle
+  <b>Bağla aracı</b>: şekilden şekle sürükle · <b>Serbest kutu (D)</b>: elinizle kapalı bir şekil çizin
 </div>
 
 <script>
@@ -106,9 +107,10 @@ const TYPES={
   rel:{label:'Relationship',kind:'diamond'},
   identrel:{label:'Weak Relationship',kind:'diamond'},
   isa:{label:'ISA',kind:'triangle'},
-  frame:{label:'Kutu (Aggregation)',kind:'frame'}
+  frame:{label:'Kutu (Aggregation)',kind:'frame'},
+  freeform:{label:'Serbest Kutu',kind:'freeform'}
 };
-const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA',frame:''};
+const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA',frame:'',freeform:''};
 const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey','multi','derived'],pRel:['rel','identrel'],pIsa:['isa','frame']};
 
 let state={nodes:[],edges:[],nextId:1};
@@ -136,6 +138,10 @@ function size(n){
   if(kind==='rect') return {w:Math.max(120,tw+44),h:56};
   if(kind==='ellipse') return {w:Math.max(96,tw+40),h:48};
   if(kind==='frame') return {w:n.w||300,h:n.h||200};
+  if(kind==='freeform'){
+    const xs=(n.pts||[[0,0]]).map(p=>p[0]), ys=(n.pts||[[0,0]]).map(p=>p[1]);
+    return {w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};
+  }
   if(kind==='triangle') return {w:Math.max(84,tw+56),h:66};
   return {w:Math.max(140,tw+96),h:80};
 }
@@ -147,11 +153,11 @@ function boundary(n,tx,ty){
   let t;
   if(kind==='rect'||kind==='frame') t=1/Math.max(Math.abs(dx)/(w/2),Math.abs(dy)/(h/2));
   else if(kind==='ellipse') t=1/Math.hypot(dx/(w/2),dy/(h/2));
-  else if(kind==='triangle'){
+  else if(kind==='triangle'||kind==='freeform'){
     // ray vs triangle (0,-h/2) (w/2,h/2) (-w/2,h/2), origin = bbox center
-    const P=[[0,-h/2],[w/2,h/2],[-w/2,h/2]]; t=Infinity;
-    for(let i=0;i<3;i++){
-      const [x1,y1]=P[i],[x2,y2]=P[(i+1)%3], ex=x2-x1, ey=y2-y1;
+    const P=kind==='triangle'?[[0,-h/2],[w/2,h/2],[-w/2,h/2]]:(n.pts||[]); t=Infinity;
+    for(let i=0;i<P.length;i++){
+      const [x1,y1]=P[i],[x2,y2]=P[(i+1)%P.length], ex=x2-x1, ey=y2-y1;
       const den=dx*ey-dy*ex; if(Math.abs(den)<1e-9) continue;
       const s=(dx*y1-dy*x1)/den*-1, r=(ex*y1-ey*x1)/den*-1;
       // solve origin + r*d = P1 + s*e
@@ -165,10 +171,22 @@ function boundary(n,tx,ty){
 const nodeById=id=>state.nodes.find(n=>n.id===id);
 
 /* ---------- shape drawing (shared by canvas and palette icons) ---------- */
-function drawShape(g,type,w,h,text,color){
+function drawShape(g,type,w,h,text,color,pts){
   const kind=TYPES[type].kind, thick=(type==='weak'||type==='identrel'), st={fill:'#fff',stroke:color,'stroke-width':thick?(text==null?4:5):2};
   const hw=w/2, hh=h/2;
-  if(kind==='frame'){
+  if(kind==='freeform'){
+    // closed smooth curve through the hand-drawn points (quadratic midpoints), only its border is clickable
+    let d='';
+    if(pts&&pts.length>2){
+      const n=pts.length, mid=i=>{const a=pts[i%n],b=pts[(i+1)%n];return [(a[0]+b[0])/2,(a[1]+b[1])/2];};
+      const m0=mid(n-1); d=`M${m0[0]},${m0[1]}`;
+      for(let i=0;i<n;i++){const m=mid(i);d+=` Q${pts[i][0]},${pts[i][1]} ${m[0]},${m[1]}`;}
+      d+=' Z';
+    }
+    const fs={d,fill:'none',stroke:color,'stroke-width':2,'stroke-dasharray':'9 6','stroke-linejoin':'round'};
+    el('path',{...fs,'pointer-events':'none'},g);
+    el('path',{...fs,stroke:'transparent','stroke-dasharray':'none','stroke-width':14,'pointer-events':'stroke'},g);
+  }else if(kind==='frame'){
     const fs={fill:'none',stroke:color,'stroke-width':2,'stroke-dasharray':'9 6',x:-hw,y:-hh,width:w,height:h,rx:6};
     el('rect',{...fs,'pointer-events':'none'},g);
     // wide invisible stroke: only the border is clickable, so shapes inside the box stay selectable
@@ -185,7 +203,7 @@ function drawShape(g,type,w,h,text,color){
     el('polygon',{...st,points:pts(hw,hh),'stroke-linejoin':'round'},g);
   }
   if(text!=null){
-    const t=el('text',{'text-anchor':kind==='frame'?'start':'middle','dominant-baseline':'central',x:kind==='frame'?-hw+14:0,y:kind==='frame'?-hh+18:kind==='triangle'?h*0.2:0,'font-size':kind==='triangle'?13:15,'font-family':'-apple-system,Segoe UI,Roboto,sans-serif',fill:INK,'pointer-events':'none'},g);
+    const t=el('text',{'text-anchor':(kind==='frame'||kind==='freeform')?'start':'middle','dominant-baseline':'central',x:(kind==='frame'||kind==='freeform')?-hw+14:0,y:(kind==='frame'||kind==='freeform')?-hh+18:kind==='triangle'?h*0.2:0,'font-size':kind==='triangle'?13:15,'font-family':'-apple-system,Segoe UI,Roboto,sans-serif',fill:INK,'pointer-events':'none'},g);
     if(type==='key') t.setAttribute('text-decoration','underline');
     if(type==='pkey') t.setAttribute('style','text-decoration:underline dashed');
     t.textContent=text;
@@ -275,8 +293,8 @@ function render(){
   }
   for(const n of state.nodes){
     const {w,h}=size(n), isMulti=msel.has(n.id), isSel=(sel&&sel.t==='n'&&sel.id===n.id)||isMulti;
-    const g=el('g',{'data-nid':n.id,transform:`translate(${n.x},${n.y})`,style:'cursor:'+(tool==='connect'?'crosshair':'move')},TYPES[n.type].kind==='frame'?fg:ng);
-    drawShape(g,n.type,w,h,n.text,isSel?SEL:INK);
+    const g=el('g',{'data-nid':n.id,transform:`translate(${n.x},${n.y})`,style:'cursor:'+(tool==='connect'?'crosshair':'move')},['frame','freeform'].includes(TYPES[n.type].kind)?fg:ng);
+    drawShape(g,n.type,w,h,n.text,isSel?SEL:INK,n.pts);
     if(isSel){
       el('rect',{x:-w/2-6,y:-h/2-6,width:w+12,height:h+12,fill:'none',stroke:SEL,'stroke-dasharray':'4 3','stroke-width':1,'pointer-events':'none'},g);
       if(!isMulti&&n.type==='frame'){
@@ -365,10 +383,20 @@ function deleteSel(){
   sel=null; render(); updatePanel();
 }
 function setTool(t){
-  tool=t; board.classList.toggle('connect',t==='connect');
+  tool=t; board.classList.toggle('connect',t==='connect'||t==='draw');
   $('tSelect').classList.toggle('active',t==='select');
   $('tConnect').classList.toggle('active',t==='connect');
+  $('tDraw').classList.toggle('active',t==='draw');
   render();
+}
+
+function pointInPoly(x,y,P){
+  let c=false;
+  for(let i=0,j=P.length-1;i<P.length;j=i++){
+    const [xi,yi]=P[i],[xj,yj]=P[j];
+    if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi) c=!c;
+  }
+  return c;
 }
 
 /* ---------- multi selection ---------- */
@@ -385,7 +413,7 @@ function toggleNode(id){
 }
 
 /* ---------- pointer interaction ---------- */
-let drag=null, pan=null, conn=null, tempLine=null, bdrag=null, rdrag=null;
+let drag=null, pan=null, conn=null, tempLine=null, bdrag=null, rdrag=null, freeDraw=null;
 board.addEventListener('pointerdown',ev=>{
   if(ev.target.closest('.panel')) return;
   const plus=ev.target.closest('[data-plus]');
@@ -402,6 +430,11 @@ board.addEventListener('pointerdown',ev=>{
   $('marq').style.display='none'; marquee=null;
   board.setPointerCapture(ev.pointerId);
   const w=toWorld(ev.clientX,ev.clientY);
+  if(tool==='draw'&&ev.button===0&&!spaceDown){
+    if(sel||msel.size){sel=null;msel.clear();render();updatePanel();}
+    freeDraw={pts:[[w.x,w.y]],path:el('path',{fill:'rgba(37,99,235,.06)',stroke:SEL,'stroke-width':2,'stroke-dasharray':'6 4','stroke-linejoin':'round','pointer-events':'none'},world)};
+    return;
+  }
   const nh=ev.target.closest('[data-nid]'), eh=ev.target.closest('[data-eid]');
   if(nh){
     const id=+nh.dataset.nid, n=nodeById(id);
@@ -412,11 +445,12 @@ board.addEventListener('pointerdown',ev=>{
       if(ev.shiftKey){toggleNode(id);render();updatePanel();return;}
       if(!msel.has(id)){msel.clear();sel={t:'n',id};}
       let ids=msel.size?[...msel]:[id];
-      if(!msel.size&&n.type==='frame'){ // moving a box also moves everything inside it
+      if(!msel.size&&(n.type==='frame'||n.type==='freeform')){ // moving a box also moves everything inside it
         const {w:fw,h:fh}=size(n);
-        for(const m of state.nodes){
-          if(m.id!==id&&m.x>=n.x-fw/2&&m.x<=n.x+fw/2&&m.y>=n.y-fh/2&&m.y<=n.y+fh/2) ids.push(m.id);
-        }
+        const inside=n.type==='freeform'
+          ? m=>pointInPoly(m.x-n.x,m.y-n.y,n.pts)
+          : m=>m.x>=n.x-fw/2&&m.x<=n.x+fw/2&&m.y>=n.y-fh/2&&m.y<=n.y+fh/2;
+        for(const m of state.nodes) if(m.id!==id&&inside(m)) ids.push(m.id);
       }
       drag={wx:w.x,wy:w.y,moved:false,starts:ids.map(i=>{const m=nodeById(i);return {id:i,x:m.x,y:m.y};})};
       render(); updatePanel();
@@ -435,7 +469,13 @@ board.addEventListener('pointerdown',ev=>{
 });
 board.addEventListener('pointermove',ev=>{
   const w=toWorld(ev.clientX,ev.clientY);
-  if(rdrag){
+  if(freeDraw){
+    const last=freeDraw.pts[freeDraw.pts.length-1];
+    if(Math.hypot(w.x-last[0],w.y-last[1])>3/view.k){
+      freeDraw.pts.push([w.x,w.y]);
+      freeDraw.path.setAttribute('d','M'+freeDraw.pts.map(p=>p.join(',')).join(' L'));
+    }
+  }else if(rdrag){
     const n=nodeById(rdrag.id);
     if(!rdrag.moved){snap();rdrag.moved=true;}
     // keep the top-left corner fixed while resizing
@@ -465,7 +505,23 @@ board.addEventListener('pointermove',ev=>{
     view.x=pan.vx+ev.clientX-pan.sx; view.y=pan.vy+ev.clientY-pan.sy; applyView();
   }
 });
+function finishFreeform(raw){
+  const out=[raw[0]];
+  for(const p of raw){const l=out[out.length-1]; if(Math.hypot(p[0]-l[0],p[1]-l[1])>=10) out.push(p);}
+  if(out.length<3) return;
+  const xs=out.map(p=>p[0]), ys=out.map(p=>p[1]);
+  const x1=Math.min(...xs),x2=Math.max(...xs),y1=Math.min(...ys),y2=Math.max(...ys);
+  if(x2-x1<30||y2-y1<30) return;
+  const cx=Math.round((x1+x2)/2), cy=Math.round((y1+y2)/2);
+  snap();
+  const n={id:state.nextId++,type:'freeform',x:cx,y:cy,text:'',pts:out.map(p=>[Math.round(p[0]-cx),Math.round(p[1]-cy)])};
+  state.nodes.push(n); sel={t:'n',id:n.id};
+}
 function endPointer(ev,cancelled){
+  if(freeDraw){
+    const f=freeDraw; freeDraw=null; f.path.remove();
+    if(!cancelled){finishFreeform(f.pts); setTool('select'); updatePanel();}
+  }
   if(conn){
     const t=document.elementFromPoint(ev.clientX,ev.clientY)?.closest('[data-nid]');
     if(tempLine) tempLine.remove();
@@ -481,7 +537,7 @@ function endPointer(ev,cancelled){
         const {w,h}=size(n);
         const inter=n.x+w/2>=a.x&&n.x-w/2<=b.x&&n.y+h/2>=a.y&&n.y-h/2<=b.y;
         const inside=n.x-w/2>=a.x&&n.x+w/2<=b.x&&n.y-h/2>=a.y&&n.y+h/2<=b.y;
-        if(n.type==='frame'?inside:inter) hit.add(n.id);
+        if(n.type==='frame'||n.type==='freeform'?inside:inter) hit.add(n.id);
       }
       applySelection(hit); updatePanel();
     }
@@ -494,7 +550,7 @@ function endPointer(ev,cancelled){
 }
 board.addEventListener('pointerup',ev=>endPointer(ev,false));
 board.addEventListener('pointercancel',ev=>endPointer(ev,true));
-board.addEventListener('lostpointercapture',ev=>{if(marquee||drag||pan||bdrag||rdrag||conn) endPointer(ev,true);});
+board.addEventListener('lostpointercapture',ev=>{if(marquee||drag||pan||bdrag||rdrag||conn||freeDraw) endPointer(ev,true);});
 board.addEventListener('dblclick',ev=>{
   const bh=ev.target.closest('[data-bend]');
   if(bh){const e=state.edges.find(x=>x.id===+bh.dataset.bend);if(e&&e.bend){snap();e.bend=0;render();}return;}
@@ -525,7 +581,7 @@ function updatePanel(){
   $('nodeProps').style.display=sel.t==='n'?'block':'none';
   $('edgeProps').style.display=sel.t==='e'?'block':'none';
   if(sel.t==='n'){
-    const n=nodeById(sel.id); $('pText').value=n.text; $('pType').value=n.type;
+    const n=nodeById(sel.id); $('pText').value=n.text; $('pType').value=n.type; $('pType').disabled=n.type==='freeform';
   }else{
     const e=state.edges.find(e=>e.id===sel.id);
     const wl=isWeakLink(e);
@@ -546,7 +602,7 @@ $('pCard').addEventListener('focus',snap);
 $('pCard').addEventListener('input',e=>{curEdge().card=e.target.value;render();});
 $('pCard').addEventListener('keydown',e=>{if(e.key==='Enter')e.target.blur();});
 $('pDel').addEventListener('click',deleteSel);
-for(const t in TYPES){const o=document.createElement('option');o.value=t;o.textContent=TYPES[t].label;$('pType').appendChild(o);}
+for(const t in TYPES){ if(t==='freeform') continue; const o=document.createElement('option');o.value=t;o.textContent=TYPES[t].label;$('pType').appendChild(o);}
 
 /* ---------- palette drag & drop ---------- */
 function startPaletteDrag(ev,type,btn){
@@ -590,6 +646,7 @@ for(const gid in GROUPS) for(const type of GROUPS[gid]){
 }
 $('tSelect').onclick=()=>setTool('select');
 $('tConnect').onclick=()=>setTool('connect');
+$('tDraw').onclick=()=>setTool('draw');
 
 /* ---------- top bar ---------- */
 $('bUndo').onclick=undo;
@@ -647,6 +704,7 @@ addEventListener('keydown',e=>{
   if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();deleteSel();}
   else if(e.key==='v'||e.key==='V') setTool('select');
   else if(e.key==='c'||e.key==='C') setTool('connect');
+  else if(e.key==='d'||e.key==='D') setTool('draw');
   else if(e.key===' '){spaceDown=true;board.classList.add('pan');e.preventDefault();}
   else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();applySelection(new Set(state.nodes.map(n=>n.id)));updatePanel();}
   else if(e.key==='Escape'){sel=null;msel.clear();render();updatePanel();}
