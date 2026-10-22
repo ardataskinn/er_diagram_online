@@ -91,7 +91,7 @@
 </div>
 
 <div id="hint" class="panel">
-  <b>Boş alanı sürükle</b>: kaydır · <b>Ctrl/⌘ + tekerlek</b>: yakınlaştır · <b>Çift tık</b>: ismi düzenle ·
+  <b>Boş alanda sürükle</b>: çoklu seç · <b>Shift+tık</b>: seçime ekle/çıkar · <b>Boşluk+sürükle</b> veya sağ/orta tuş: kaydır · <b>Ctrl/⌘ + tekerlek</b>: yakınlaştır · <b>Çift tık</b>: ismi düzenle ·
   <b>Bağla aracı</b>: şekilden şekle sürükle
 </div>
 
@@ -107,7 +107,7 @@ const TYPES={
   multi:{label:'Multivalued',kind:'ellipse'},
   derived:{label:'Derived',kind:'ellipse'},
   rel:{label:'Relationship',kind:'diamond'},
-  identrel:{label:'Identifying Rel.',kind:'diamond'},
+  identrel:{label:'Weak Relationship',kind:'diamond'},
   isa:{label:'ISA',kind:'triangle'}
 };
 const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA'};
@@ -116,6 +116,8 @@ const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey','multi','derived
 let state={nodes:[],edges:[],nextId:1};
 let view={x:0,y:0,k:1};
 let sel=null; // {t:'n'|'e', id}
+let msel=new Set(); // multi-selected node ids (used only when >1 node selected; sel is null then)
+let marquee=null, spaceDown=false;
 let tool='select';
 let history=[];
 const bendGeom={}; // geometry of the selected edge's bend handle
@@ -165,11 +167,10 @@ const nodeById=id=>state.nodes.find(n=>n.id===id);
 
 /* ---------- shape drawing (shared by canvas and palette icons) ---------- */
 function drawShape(g,type,w,h,text,color){
-  const kind=TYPES[type].kind, st={fill:'#fff',stroke:color,'stroke-width':2};
+  const kind=TYPES[type].kind, thick=(type==='weak'||type==='identrel'), st={fill:'#fff',stroke:color,'stroke-width':thick?(text==null?4:5):2};
   const hw=w/2, hh=h/2;
   if(kind==='rect'){
     el('rect',{...st,x:-hw,y:-hh,width:w,height:h,rx:2},g);
-    if(type==='weak') el('rect',{...st,'stroke-width':1.5,x:-hw+6,y:-hh+6,width:w-12,height:h-12},g);
   }else if(kind==='ellipse'){
     el('ellipse',{...st,rx:hw,ry:hh,'stroke-dasharray':type==='derived'?'6 4':'none'},g);
     if(type==='multi') el('ellipse',{...st,'stroke-width':1.5,rx:hw-6,ry:hh-6},g);
@@ -178,7 +179,6 @@ function drawShape(g,type,w,h,text,color){
   }else{
     const pts=(a,b)=>`0,${-b} ${a},0 0,${b} ${-a},0`;
     el('polygon',{...st,points:pts(hw,hh),'stroke-linejoin':'round'},g);
-    if(type==='identrel') el('polygon',{...st,'stroke-width':1.5,points:pts(hw-14,hh-8),'stroke-linejoin':'round'},g);
   }
   if(text!=null){
     const t=el('text',{'text-anchor':'middle','dominant-baseline':'central',y:kind==='triangle'?h*0.2:0,'font-size':kind==='triangle'?13:15,'font-family':'-apple-system,Segoe UI,Roboto,sans-serif',fill:INK,'pointer-events':'none'},g);
@@ -197,6 +197,8 @@ function applyView(){
 
 function render(){
   world.innerHTML='';
+  if(sel) msel.clear();
+  for(const id of [...msel]) if(!nodeById(id)) msel.delete(id);
   const eg=el('g',{},world), ng=el('g',{},world);
   const handles=[];
   for(const e of state.edges){
@@ -248,13 +250,13 @@ function render(){
     }
   }
   for(const n of state.nodes){
-    const {w,h}=size(n), isSel=sel&&sel.t==='n'&&sel.id===n.id;
+    const {w,h}=size(n), isMulti=msel.has(n.id), isSel=(sel&&sel.t==='n'&&sel.id===n.id)||isMulti;
     const g=el('g',{'data-nid':n.id,transform:`translate(${n.x},${n.y})`,style:'cursor:'+(tool==='connect'?'crosshair':'move')},ng);
     drawShape(g,n.type,w,h,n.text,isSel?SEL:INK);
     if(isSel){
       el('rect',{x:-w/2-6,y:-h/2-6,width:w+12,height:h+12,fill:'none',stroke:SEL,'stroke-dasharray':'4 3','stroke-width':1,'pointer-events':'none'},g);
       const k=TYPES[n.type].kind;
-      if(k==='rect'||k==='diamond'){
+      if(!isMulti&&(k==='rect'||k==='diamond')){
         const pg=el('g',{'data-plus':n.id,transform:`translate(${w/2+6},${h/2+6})`,style:'cursor:pointer'},g);
         el('circle',{r:11,fill:SEL,stroke:'#fff','stroke-width':2},pg);
         el('path',{d:'M-5 0H5M0 -5V5',stroke:'#fff','stroke-width':2,'stroke-linecap':'round'},pg);
@@ -321,6 +323,12 @@ function addEdge(a,b){
   state.edges.push(e); sel={t:'e',id:e.id}; render(); updatePanel();
 }
 function deleteSel(){
+  if(msel.size){
+    snap();
+    state.nodes=state.nodes.filter(n=>!msel.has(n.id));
+    state.edges=state.edges.filter(e=>!msel.has(e.a)&&!msel.has(e.b));
+    msel.clear(); render(); updatePanel(); return;
+  }
   if(!sel) return;
   snap();
   if(sel.t==='n'){state.nodes=state.nodes.filter(n=>n.id!==sel.id);state.edges=state.edges.filter(e=>e.a!==sel.id&&e.b!==sel.id);}
@@ -332,6 +340,19 @@ function setTool(t){
   $('tSelect').classList.toggle('active',t==='select');
   $('tConnect').classList.toggle('active',t==='connect');
   render();
+}
+
+/* ---------- multi selection ---------- */
+function applySelection(set){
+  if(set.size===1){sel={t:'n',id:[...set][0]};msel=new Set();}
+  else{sel=null;msel=set;}
+  render();
+}
+function toggleNode(id){
+  const set=new Set(msel);
+  if(sel&&sel.t==='n') set.add(sel.id);
+  if(set.has(id)) set.delete(id); else set.add(id);
+  applySelection(set);
 }
 
 /* ---------- pointer interaction ---------- */
@@ -351,13 +372,23 @@ board.addEventListener('pointerdown',ev=>{
       conn={from:id};
       tempLine=el('line',{x1:n.x,y1:n.y,x2:w.x,y2:w.y,stroke:SEL,'stroke-width':2,'stroke-dasharray':'5 4','pointer-events':'none'},world);
     }else{
-      sel={t:'n',id}; drag={id,ox:w.x-n.x,oy:w.y-n.y,moved:false}; render(); updatePanel();
+      if(ev.shiftKey){toggleNode(id);render();updatePanel();return;}
+      if(!msel.has(id)){msel.clear();sel={t:'n',id};}
+      const ids=msel.size?[...msel]:[id];
+      drag={wx:w.x,wy:w.y,moved:false,starts:ids.map(i=>{const m=nodeById(i);return {id:i,x:m.x,y:m.y};})};
+      render(); updatePanel();
     }
   }else if(eh&&tool==='select'){
     sel={t:'e',id:+eh.dataset.eid}; render(); updatePanel();
   }else{
-    if(sel){sel=null;render();updatePanel();}
-    pan={sx:ev.clientX,sy:ev.clientY,vx:view.x,vy:view.y}; board.classList.add('pan');
+    const wantPan=tool==='connect'||spaceDown||ev.button===1||ev.button===2;
+    if(!ev.shiftKey&&(sel||msel.size)){sel=null;msel.clear();render();updatePanel();}
+    if(wantPan){
+      pan={sx:ev.clientX,sy:ev.clientY,vx:view.x,vy:view.y}; board.classList.add('pan');
+    }else{
+      const r=board.getBoundingClientRect();
+      marquee={x0:ev.clientX-r.left,y0:ev.clientY-r.top,x1:ev.clientX-r.left,y1:ev.clientY-r.top,add:ev.shiftKey,base:new Set(msel),rect:el('rect',{fill:'rgba(37,99,235,.10)',stroke:SEL,'stroke-dasharray':'4 3','pointer-events':'none'},board)};
+    }
   }
 });
 board.addEventListener('pointermove',ev=>{
@@ -369,9 +400,16 @@ board.addEventListener('pointermove',ev=>{
     if(Math.abs(b)<8) b=0;
     e.bend=Math.round(b); render();
   }else if(drag){
-    const n=nodeById(drag.id);
     if(!drag.moved){snap();drag.moved=true;}
-    n.x=snapG(w.x-drag.ox); n.y=snapG(w.y-drag.oy); render();
+    const ddx=snapG(w.x-drag.wx), ddy=snapG(w.y-drag.wy);
+    for(const st of drag.starts){const n=nodeById(st.id);n.x=st.x+ddx;n.y=st.y+ddy;}
+    render();
+  }else if(marquee){
+    const r=board.getBoundingClientRect();
+    marquee.x1=ev.clientX-r.left; marquee.y1=ev.clientY-r.top;
+    const m=marquee, x=Math.min(m.x0,m.x1), y=Math.min(m.y0,m.y1);
+    m.rect.setAttribute('x',x);m.rect.setAttribute('y',y);
+    m.rect.setAttribute('width',Math.abs(m.x1-m.x0));m.rect.setAttribute('height',Math.abs(m.y1-m.y0));
   }else if(conn&&tempLine){
     tempLine.setAttribute('x2',w.x); tempLine.setAttribute('y2',w.y);
   }else if(pan){
@@ -384,6 +422,19 @@ board.addEventListener('pointerup',ev=>{
     if(tempLine) tempLine.remove();
     if(t) addEdge(conn.from,+t.dataset.nid);
     conn=null; tempLine=null;
+  }
+  if(marquee){
+    const m=marquee; m.rect.remove(); marquee=null;
+    if(Math.hypot(m.x1-m.x0,m.y1-m.y0)>4){
+      const r=board.getBoundingClientRect();
+      const a=toWorld(Math.min(m.x0,m.x1)+r.left,Math.min(m.y0,m.y1)+r.top), b=toWorld(Math.max(m.x0,m.x1)+r.left,Math.max(m.y0,m.y1)+r.top);
+      const hit=new Set(m.base);
+      for(const n of state.nodes){
+        const {w,h}=size(n);
+        if(n.x+w/2>=a.x&&n.x-w/2<=b.x&&n.y+h/2>=a.y&&n.y-h/2<=b.y) hit.add(n.id);
+      }
+      applySelection(hit); updatePanel();
+    }
   }
   drag=null; pan=null; bdrag=null; board.classList.remove('pan');
   render();
@@ -408,6 +459,11 @@ board.addEventListener('wheel',ev=>{
 /* ---------- properties panel ---------- */
 function updatePanel(){
   const p=$('props');
+  if(!sel&&msel.size>1){
+    p.style.display='block';
+    $('nodeProps').style.display='none'; $('edgeProps').style.display='none';
+    return;
+  }
   if(!sel){p.style.display='none';return;}
   p.style.display='block';
   $('nodeProps').style.display=sel.t==='n'?'block':'none';
@@ -495,14 +551,14 @@ function fit(){
 }
 $('bFit').onclick=fit;
 function svgString(){
-  const prev=sel; sel=null; render();
+  const prev=sel, prevM=msel; sel=null; msel=new Set(); render();
   const b=bbox()||{x1:0,y1:0,x2:200,y2:100}, m=40;
   const W=b.x2-b.x1+2*m, H=b.y2-b.y1+2*m;
   const clone=world.cloneNode(true);
   clone.setAttribute('transform',`translate(${-b.x1+m},${-b.y1+m})`);
   clone.querySelectorAll('[style*=cursor]').forEach(n=>n.removeAttribute('style'));
   const s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#fff"/>${clone.outerHTML}</svg>`;
-  sel=prev; render();
+  sel=prev; msel=prevM; render();
   return {s,W,H};
 }
 function download(name,blob){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
@@ -532,7 +588,9 @@ addEventListener('keydown',e=>{
   if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();deleteSel();}
   else if(e.key==='v'||e.key==='V') setTool('select');
   else if(e.key==='c'||e.key==='C') setTool('connect');
-  else if(e.key==='Escape'){sel=null;render();updatePanel();}
+  else if(e.key===' '){spaceDown=true;board.classList.add('pan');e.preventDefault();}
+  else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();applySelection(new Set(state.nodes.map(n=>n.id)));updatePanel();}
+  else if(e.key==='Escape'){sel=null;msel.clear();render();updatePanel();}
 });
 
 /* ---------- init ---------- */
@@ -551,6 +609,8 @@ if(!state.nodes.length){
   view={x:innerWidth/2-30,y:innerHeight/2,k:1};
 }
 setTool('select'); render(); updatePanel();
+addEventListener('keyup',e=>{if(e.key===' '){spaceDown=false;if(!pan)board.classList.remove('pan');}});
+board.addEventListener('contextmenu',e=>e.preventDefault());
 </script>
 </body>
 </html>
