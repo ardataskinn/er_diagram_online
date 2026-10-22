@@ -46,7 +46,7 @@
   <h4>Entity</h4><div id="pEnt"></div>
   <h4>Attribute</h4><div id="pAttr"></div>
   <h4>Relationship</h4><div id="pRel"></div>
-  <h4>Hiyerarşi</h4><div id="pIsa"></div>
+  <h4>Diğer</h4><div id="pIsa"></div>
   <small style="color:#64748b;font-size:11px;display:block;margin:4px">Şekli tuvale sürükleyip bırakın ya da tıklayın.</small>
 </div>
 
@@ -105,10 +105,11 @@ const TYPES={
   derived:{label:'Derived',kind:'ellipse'},
   rel:{label:'Relationship',kind:'diamond'},
   identrel:{label:'Weak Relationship',kind:'diamond'},
-  isa:{label:'ISA',kind:'triangle'}
+  isa:{label:'ISA',kind:'triangle'},
+  frame:{label:'Kutu (Aggregation)',kind:'frame'}
 };
-const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA'};
-const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey','multi','derived'],pRel:['rel','identrel'],pIsa:['isa']};
+const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA',frame:''};
+const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey','multi','derived'],pRel:['rel','identrel'],pIsa:['isa','frame']};
 
 let state={nodes:[],edges:[],nextId:1};
 let view={x:0,y:0,k:1};
@@ -134,6 +135,7 @@ function size(n){
   const kind=TYPES[n.type].kind, tw=n.text.length*9;
   if(kind==='rect') return {w:Math.max(120,tw+44),h:56};
   if(kind==='ellipse') return {w:Math.max(96,tw+40),h:48};
+  if(kind==='frame') return {w:n.w||300,h:n.h||200};
   if(kind==='triangle') return {w:Math.max(84,tw+56),h:66};
   return {w:Math.max(140,tw+96),h:80};
 }
@@ -143,7 +145,7 @@ function boundary(n,tx,ty){
   let dx=tx-n.x, dy=ty-n.y;
   if(!dx&&!dy) dx=1;
   let t;
-  if(kind==='rect') t=1/Math.max(Math.abs(dx)/(w/2),Math.abs(dy)/(h/2));
+  if(kind==='rect'||kind==='frame') t=1/Math.max(Math.abs(dx)/(w/2),Math.abs(dy)/(h/2));
   else if(kind==='ellipse') t=1/Math.hypot(dx/(w/2),dy/(h/2));
   else if(kind==='triangle'){
     // ray vs triangle (0,-h/2) (w/2,h/2) (-w/2,h/2), origin = bbox center
@@ -166,7 +168,12 @@ const nodeById=id=>state.nodes.find(n=>n.id===id);
 function drawShape(g,type,w,h,text,color){
   const kind=TYPES[type].kind, thick=(type==='weak'||type==='identrel'), st={fill:'#fff',stroke:color,'stroke-width':thick?(text==null?4:5):2};
   const hw=w/2, hh=h/2;
-  if(kind==='rect'){
+  if(kind==='frame'){
+    const fs={fill:'none',stroke:color,'stroke-width':2,'stroke-dasharray':'9 6',x:-hw,y:-hh,width:w,height:h,rx:6};
+    el('rect',{...fs,'pointer-events':'none'},g);
+    // wide invisible stroke: only the border is clickable, so shapes inside the box stay selectable
+    el('rect',{...fs,stroke:'transparent','stroke-dasharray':'none','stroke-width':14,'pointer-events':'stroke'},g);
+  }else if(kind==='rect'){
     el('rect',{...st,x:-hw,y:-hh,width:w,height:h,rx:2},g);
   }else if(kind==='ellipse'){
     el('ellipse',{...st,rx:hw,ry:hh,'stroke-dasharray':type==='derived'?'6 4':'none'},g);
@@ -178,7 +185,7 @@ function drawShape(g,type,w,h,text,color){
     el('polygon',{...st,points:pts(hw,hh),'stroke-linejoin':'round'},g);
   }
   if(text!=null){
-    const t=el('text',{'text-anchor':'middle','dominant-baseline':'central',y:kind==='triangle'?h*0.2:0,'font-size':kind==='triangle'?13:15,'font-family':'-apple-system,Segoe UI,Roboto,sans-serif',fill:INK,'pointer-events':'none'},g);
+    const t=el('text',{'text-anchor':kind==='frame'?'start':'middle','dominant-baseline':'central',x:kind==='frame'?-hw+14:0,y:kind==='frame'?-hh+18:kind==='triangle'?h*0.2:0,'font-size':kind==='triangle'?13:15,'font-family':'-apple-system,Segoe UI,Roboto,sans-serif',fill:INK,'pointer-events':'none'},g);
     if(type==='key') t.setAttribute('text-decoration','underline');
     if(type==='pkey') t.setAttribute('style','text-decoration:underline dashed');
     t.textContent=text;
@@ -215,7 +222,7 @@ function render(){
   world.innerHTML='';
   if(sel) msel.clear();
   for(const id of [...msel]) if(!nodeById(id)) msel.delete(id);
-  const eg=el('g',{},world), ng=el('g',{},world);
+  const fg=el('g',{},world), eg=el('g',{},world), ng=el('g',{},world);
   const handles=[];
   for(const e of state.edges){
     const A=nodeById(e.a), B=nodeById(e.b); if(!A||!B) continue;
@@ -268,10 +275,15 @@ function render(){
   }
   for(const n of state.nodes){
     const {w,h}=size(n), isMulti=msel.has(n.id), isSel=(sel&&sel.t==='n'&&sel.id===n.id)||isMulti;
-    const g=el('g',{'data-nid':n.id,transform:`translate(${n.x},${n.y})`,style:'cursor:'+(tool==='connect'?'crosshair':'move')},ng);
+    const g=el('g',{'data-nid':n.id,transform:`translate(${n.x},${n.y})`,style:'cursor:'+(tool==='connect'?'crosshair':'move')},TYPES[n.type].kind==='frame'?fg:ng);
     drawShape(g,n.type,w,h,n.text,isSel?SEL:INK);
     if(isSel){
       el('rect',{x:-w/2-6,y:-h/2-6,width:w+12,height:h+12,fill:'none',stroke:SEL,'stroke-dasharray':'4 3','stroke-width':1,'pointer-events':'none'},g);
+      if(!isMulti&&n.type==='frame'){
+        const rg=el('g',{'data-resize':n.id,transform:`translate(${w/2},${h/2})`,style:'cursor:nwse-resize'},g);
+        el('rect',{x:-7,y:-7,width:14,height:14,rx:3,fill:SEL,stroke:'#fff','stroke-width':2},rg);
+        const tt=el('title',{},rg); tt.textContent='Boyutlandır';
+      }
       const k=TYPES[n.type].kind;
       if(!isMulti&&(k==='rect'||k==='diamond')){
         const pg=el('g',{'data-plus':n.id,transform:`translate(${w/2+6},${h/2+6})`,style:'cursor:pointer'},g);
@@ -373,11 +385,18 @@ function toggleNode(id){
 }
 
 /* ---------- pointer interaction ---------- */
-let drag=null, pan=null, conn=null, tempLine=null, bdrag=null;
+let drag=null, pan=null, conn=null, tempLine=null, bdrag=null, rdrag=null;
 board.addEventListener('pointerdown',ev=>{
   if(ev.target.closest('.panel')) return;
   const plus=ev.target.closest('[data-plus]');
   if(plus){ev.preventDefault();addAttrTo(+plus.dataset.plus);return;}
+  const rh=ev.target.closest('[data-resize]');
+  if(rh){
+    const n=nodeById(+rh.dataset.resize), sz=size(n);
+    board.setPointerCapture(ev.pointerId);
+    rdrag={id:n.id,wx:toWorld(ev.clientX,ev.clientY).x,wy:toWorld(ev.clientX,ev.clientY).y,w0:sz.w,h0:sz.h,x0:n.x,y0:n.y,moved:false};
+    return;
+  }
   const bh=ev.target.closest('[data-bend]');
   if(bh){board.setPointerCapture(ev.pointerId);bdrag={id:+bh.dataset.bend,moved:false};return;}
   $('marq').style.display='none'; marquee=null;
@@ -392,7 +411,13 @@ board.addEventListener('pointerdown',ev=>{
     }else{
       if(ev.shiftKey){toggleNode(id);render();updatePanel();return;}
       if(!msel.has(id)){msel.clear();sel={t:'n',id};}
-      const ids=msel.size?[...msel]:[id];
+      let ids=msel.size?[...msel]:[id];
+      if(!msel.size&&n.type==='frame'){ // moving a box also moves everything inside it
+        const {w:fw,h:fh}=size(n);
+        for(const m of state.nodes){
+          if(m.id!==id&&m.x>=n.x-fw/2&&m.x<=n.x+fw/2&&m.y>=n.y-fh/2&&m.y<=n.y+fh/2) ids.push(m.id);
+        }
+      }
       drag={wx:w.x,wy:w.y,moved:false,starts:ids.map(i=>{const m=nodeById(i);return {id:i,x:m.x,y:m.y};})};
       render(); updatePanel();
     }
@@ -410,7 +435,14 @@ board.addEventListener('pointerdown',ev=>{
 });
 board.addEventListener('pointermove',ev=>{
   const w=toWorld(ev.clientX,ev.clientY);
-  if(bdrag){
+  if(rdrag){
+    const n=nodeById(rdrag.id);
+    if(!rdrag.moved){snap();rdrag.moved=true;}
+    // keep the top-left corner fixed while resizing
+    const nw=Math.max(80,rdrag.w0+snapG(w.x-rdrag.wx)), nh=Math.max(60,rdrag.h0+snapG(w.y-rdrag.wy));
+    n.w=nw; n.h=nh; n.x=rdrag.x0+(nw-rdrag.w0)/2; n.y=rdrag.y0+(nh-rdrag.h0)/2;
+    renderSoon();
+  }else if(bdrag){
     const e=state.edges.find(x=>x.id===bdrag.id), g=bendGeom[bdrag.id];
     if(!bdrag.moved){snap();bdrag.moved=true;}
     let b=(w.x-g.bx)*g.nx+(w.y-g.by)*g.ny;
@@ -447,20 +479,22 @@ function endPointer(ev,cancelled){
       const hit=new Set(m.base);
       for(const n of state.nodes){
         const {w,h}=size(n);
-        if(n.x+w/2>=a.x&&n.x-w/2<=b.x&&n.y+h/2>=a.y&&n.y-h/2<=b.y) hit.add(n.id);
+        const inter=n.x+w/2>=a.x&&n.x-w/2<=b.x&&n.y+h/2>=a.y&&n.y-h/2<=b.y;
+        const inside=n.x-w/2>=a.x&&n.x+w/2<=b.x&&n.y-h/2>=a.y&&n.y+h/2<=b.y;
+        if(n.type==='frame'?inside:inter) hit.add(n.id);
       }
       applySelection(hit); updatePanel();
     }
   }
   marquee=null; $('marq').style.display='none';
   conn=null; tempLine=null;
-  drag=null; pan=null; bdrag=null; board.classList.remove('pan');
+  drag=null; pan=null; bdrag=null; rdrag=null; board.classList.remove('pan');
   if(raf){cancelAnimationFrame(raf);raf=0;}
   render();
 }
 board.addEventListener('pointerup',ev=>endPointer(ev,false));
 board.addEventListener('pointercancel',ev=>endPointer(ev,true));
-board.addEventListener('lostpointercapture',ev=>{if(marquee||drag||pan||bdrag||conn) endPointer(ev,true);});
+board.addEventListener('lostpointercapture',ev=>{if(marquee||drag||pan||bdrag||rdrag||conn) endPointer(ev,true);});
 board.addEventListener('dblclick',ev=>{
   const bh=ev.target.closest('[data-bend]');
   if(bh){const e=state.edges.find(x=>x.id===+bh.dataset.bend);if(e&&e.bend){snap();e.bend=0;render();}return;}
