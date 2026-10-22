@@ -7,7 +7,7 @@
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;overflow:hidden;background:#f8fafc}
-  #board{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:default}
+  #board{background-image:radial-gradient(circle,#cbd5e1 1.2px,transparent 1.6px);background-size:20px 20px;position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:default}
   #board.pan{cursor:grabbing}
   #board.connect{cursor:crosshair}
   .panel{position:absolute;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.08);padding:10px}
@@ -34,14 +34,10 @@
 </head>
 <body>
 <svg id="board" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-      <circle cx="1" cy="1" r="1" fill="#cbd5e1"/>
-    </pattern>
-  </defs>
-  <rect id="bg" width="100%" height="100%" fill="url(#grid)"/>
   <g id="world"></g>
 </svg>
+
+<div id="marq" style="position:fixed;display:none;pointer-events:none;border:1px dashed #2563eb;background:rgba(37,99,235,.10);z-index:5"></div>
 
 <div id="palette" class="panel">
   <h4>Araç</h4>
@@ -191,8 +187,20 @@ function drawShape(g,type,w,h,text,color){
 /* ---------- render ---------- */
 function applyView(){
   world.setAttribute('transform',`translate(${view.x},${view.y}) scale(${view.k})`);
-  $('grid').setAttribute('patternTransform',`translate(${view.x},${view.y}) scale(${view.k})`);
+  board.style.backgroundSize=`${20*view.k}px ${20*view.k}px`;
+  board.style.backgroundPosition=`${view.x}px ${view.y}px`;
+  saveSoon();
   $('zPct').textContent=Math.round(view.k*100)+'%';
+}
+
+let saveT=null, raf=0;
+function saveSoon(){ // debounced persistence: stringify + localStorage on every mouse move was a major source of lag
+  clearTimeout(saveT);
+  saveT=setTimeout(()=>{try{localStorage.setItem('er-diagram',JSON.stringify({state,view}));}catch{}},300);
+}
+function renderSoon(){ // coalesce multiple pointer events into one render per frame
+  if(raf) return;
+  raf=requestAnimationFrame(()=>{raf=0;render();});
 }
 
 function render(){
@@ -271,7 +279,7 @@ function render(){
     const tt=el('title',{},hg); tt.textContent='Sürükleyerek bük · çift tık: düzleştir';
   }
   applyView();
-  localStorage.setItem('er-diagram',JSON.stringify({state,view}));
+  saveSoon();
 }
 
 /* ---------- history ---------- */
@@ -363,6 +371,7 @@ board.addEventListener('pointerdown',ev=>{
   if(plus){ev.preventDefault();addAttrTo(+plus.dataset.plus);return;}
   const bh=ev.target.closest('[data-bend]');
   if(bh){board.setPointerCapture(ev.pointerId);bdrag={id:+bh.dataset.bend,moved:false};return;}
+  $('marq').style.display='none'; marquee=null;
   board.setPointerCapture(ev.pointerId);
   const w=toWorld(ev.clientX,ev.clientY);
   const nh=ev.target.closest('[data-nid]'), eh=ev.target.closest('[data-eid]');
@@ -386,8 +395,7 @@ board.addEventListener('pointerdown',ev=>{
     if(wantPan){
       pan={sx:ev.clientX,sy:ev.clientY,vx:view.x,vy:view.y}; board.classList.add('pan');
     }else{
-      const r=board.getBoundingClientRect();
-      marquee={x0:ev.clientX-r.left,y0:ev.clientY-r.top,x1:ev.clientX-r.left,y1:ev.clientY-r.top,add:ev.shiftKey,base:new Set(msel),rect:el('rect',{fill:'rgba(37,99,235,.10)',stroke:SEL,'stroke-dasharray':'4 3','pointer-events':'none'},board)};
+      marquee={x0:ev.clientX,y0:ev.clientY,x1:ev.clientX,y1:ev.clientY,base:new Set(msel)};
     }
   }
 });
@@ -398,36 +406,35 @@ board.addEventListener('pointermove',ev=>{
     if(!bdrag.moved){snap();bdrag.moved=true;}
     let b=(w.x-g.bx)*g.nx+(w.y-g.by)*g.ny;
     if(Math.abs(b)<8) b=0;
-    e.bend=Math.round(b); render();
+    e.bend=Math.round(b); renderSoon();
   }else if(drag){
     if(!drag.moved){snap();drag.moved=true;}
     const ddx=snapG(w.x-drag.wx), ddy=snapG(w.y-drag.wy);
     for(const st of drag.starts){const n=nodeById(st.id);n.x=st.x+ddx;n.y=st.y+ddy;}
-    render();
+    renderSoon();
   }else if(marquee){
-    const r=board.getBoundingClientRect();
-    marquee.x1=ev.clientX-r.left; marquee.y1=ev.clientY-r.top;
-    const m=marquee, x=Math.min(m.x0,m.x1), y=Math.min(m.y0,m.y1);
-    m.rect.setAttribute('x',x);m.rect.setAttribute('y',y);
-    m.rect.setAttribute('width',Math.abs(m.x1-m.x0));m.rect.setAttribute('height',Math.abs(m.y1-m.y0));
+    const m=marquee; m.x1=ev.clientX; m.y1=ev.clientY;
+    const q=$('marq').style;
+    if(Math.hypot(m.x1-m.x0,m.y1-m.y0)>4) q.display='block';
+    q.left=Math.min(m.x0,m.x1)+'px'; q.top=Math.min(m.y0,m.y1)+'px';
+    q.width=Math.abs(m.x1-m.x0)+'px'; q.height=Math.abs(m.y1-m.y0)+'px';
   }else if(conn&&tempLine){
     tempLine.setAttribute('x2',w.x); tempLine.setAttribute('y2',w.y);
   }else if(pan){
     view.x=pan.vx+ev.clientX-pan.sx; view.y=pan.vy+ev.clientY-pan.sy; applyView();
   }
 });
-board.addEventListener('pointerup',ev=>{
+function endPointer(ev,cancelled){
   if(conn){
     const t=document.elementFromPoint(ev.clientX,ev.clientY)?.closest('[data-nid]');
     if(tempLine) tempLine.remove();
-    if(t) addEdge(conn.from,+t.dataset.nid);
+    if(t&&!cancelled) addEdge(conn.from,+t.dataset.nid);
     conn=null; tempLine=null;
   }
   if(marquee){
-    const m=marquee; m.rect.remove(); marquee=null;
-    if(Math.hypot(m.x1-m.x0,m.y1-m.y0)>4){
-      const r=board.getBoundingClientRect();
-      const a=toWorld(Math.min(m.x0,m.x1)+r.left,Math.min(m.y0,m.y1)+r.top), b=toWorld(Math.max(m.x0,m.x1)+r.left,Math.max(m.y0,m.y1)+r.top);
+    const m=marquee; marquee=null; $('marq').style.display='none';
+    if(!cancelled&&Math.hypot(m.x1-m.x0,m.y1-m.y0)>4){
+      const a=toWorld(Math.min(m.x0,m.x1),Math.min(m.y0,m.y1)), b=toWorld(Math.max(m.x0,m.x1),Math.max(m.y0,m.y1));
       const hit=new Set(m.base);
       for(const n of state.nodes){
         const {w,h}=size(n);
@@ -436,9 +443,15 @@ board.addEventListener('pointerup',ev=>{
       applySelection(hit); updatePanel();
     }
   }
+  marquee=null; $('marq').style.display='none';
+  conn=null; tempLine=null;
   drag=null; pan=null; bdrag=null; board.classList.remove('pan');
+  if(raf){cancelAnimationFrame(raf);raf=0;}
   render();
-});
+}
+board.addEventListener('pointerup',ev=>endPointer(ev,false));
+board.addEventListener('pointercancel',ev=>endPointer(ev,true));
+board.addEventListener('lostpointercapture',ev=>{if(marquee||drag||pan||bdrag||conn) endPointer(ev,true);});
 board.addEventListener('dblclick',ev=>{
   const bh=ev.target.closest('[data-bend]');
   if(bh){const e=state.edges.find(x=>x.id===+bh.dataset.bend);if(e&&e.bend){snap();e.bend=0;render();}return;}
