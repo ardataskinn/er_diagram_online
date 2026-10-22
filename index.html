@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ER Diyagram Çizici</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;overflow:hidden;background:#f8fafc}
+  #board{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:default}
+  #board.pan{cursor:grabbing}
+  #board.connect{cursor:crosshair}
+  .panel{position:absolute;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.08);padding:10px}
+  #palette{left:12px;top:12px;width:152px;max-height:calc(100% - 24px);overflow:auto}
+  #palette h4,#props h4{margin:8px 4px 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#64748b}
+  #palette h4:first-child{margin-top:0}
+  .btn{display:flex;align-items:center;gap:8px;width:100%;padding:5px 6px;margin-bottom:4px;border:1px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;font-size:12.5px;text-align:left;color:inherit}
+  .btn:hover{background:#f1f5f9}
+  .btn.active{background:#dbeafe;border-color:#3b82f6}
+  .btn svg{flex:none}
+  #props{right:12px;top:12px;width:230px;display:none}
+  #props label{display:block;font-size:12px;margin:8px 0 3px;color:#475569}
+  #props input[type=text],#props select{width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px}
+  #props .chk{display:flex;align-items:center;gap:6px;margin:8px 0;font-size:13px;color:#1f2937}
+  #props .del{margin-top:10px;background:#fee2e2;border-color:#fecaca;color:#b91c1c;justify-content:center}
+  #props small{color:#64748b;font-size:11px;display:block;margin-top:4px;line-height:1.35}
+  #top{left:50%;transform:translateX(-50%);top:12px;display:flex;gap:6px;padding:6px}
+  #top .btn{width:auto;margin:0;padding:6px 10px}
+  #zoom{right:12px;bottom:12px;display:flex;gap:6px;align-items:center;padding:6px}
+  #zoom .btn{width:auto;margin:0;padding:4px 10px}
+  #hint{left:176px;bottom:12px;font-size:12px;color:#64748b;padding:8px 12px;line-height:1.5}
+  #hint b{color:#334155}
+</style>
+</head>
+<body>
+<svg id="board" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#cbd5e1"/>
+    </pattern>
+  </defs>
+  <rect id="bg" width="100%" height="100%" fill="url(#grid)"/>
+  <g id="world"></g>
+</svg>
+
+<div id="palette" class="panel">
+  <h4>Araç</h4>
+  <button class="btn" id="tSelect"><span>↖</span> Seç / Taşı (V)</button>
+  <button class="btn" id="tConnect"><span>⟷</span> Bağla (C)</button>
+  <h4>Entity</h4><div id="pEnt"></div>
+  <h4>Attribute</h4><div id="pAttr"></div>
+  <h4>Relationship</h4><div id="pRel"></div>
+  <h4>Hiyerarşi</h4><div id="pIsa"></div>
+  <small style="color:#64748b;font-size:11px;display:block;margin:4px">Şekli tuvale sürükleyip bırakın ya da tıklayın.</small>
+</div>
+
+<div id="props" class="panel">
+  <div id="nodeProps">
+    <h4>Şekil</h4>
+    <label>İsim</label>
+    <input type="text" id="pText">
+    <label>Tür</label>
+    <select id="pType"></select>
+  </div>
+  <div id="edgeProps">
+    <h4>Bağlantı</h4>
+    <label class="chk"><input type="checkbox" id="pTotal"> Total participation (çift çizgi)</label>
+    <label class="chk"><input type="checkbox" id="pKey"> Key constraint (ok → relationship)</label>
+    <label>Cardinality etiketi</label>
+    <input type="text" id="pCard" list="cards" placeholder="1, N, M, 0..1 ...">
+    <datalist id="cards"><option value="1"><option value="N"><option value="M"><option value="0..1"><option value="1..N"><option value="0..N"></datalist>
+    <small>Partial participation = tek çizgi (varsayılan).</small>
+  </div>
+  <button class="btn del" id="pDel">Sil (Del)</button>
+</div>
+
+<div id="top" class="panel">
+  <button class="btn" id="bUndo">↶ Geri al</button>
+  <button class="btn" id="bFit">Sığdır</button>
+  <button class="btn" id="bSvg">SVG</button>
+  <button class="btn" id="bPng">PNG</button>
+  <button class="btn" id="bSave">JSON kaydet</button>
+  <button class="btn" id="bLoad">JSON aç</button>
+  <button class="btn" id="bClear">Temizle</button>
+  <input type="file" id="file" accept=".json" hidden>
+</div>
+
+<div id="zoom" class="panel">
+  <button class="btn" id="zOut">−</button><span id="zPct">100%</span><button class="btn" id="zIn">+</button>
+</div>
+
+<div id="hint" class="panel">
+  <b>Boş alanı sürükle</b>: kaydır · <b>Ctrl/⌘ + tekerlek</b>: yakınlaştır · <b>Çift tık</b>: ismi düzenle ·
+  <b>Bağla aracı</b>: şekilden şekle sürükle
+</div>
+
+<script>
+const NS='http://www.w3.org/2000/svg';
+const INK='#1f2937', SEL='#2563eb';
+const TYPES={
+  entity:{label:'Entity',kind:'rect'},
+  weak:{label:'Weak Entity',kind:'rect'},
+  attr:{label:'Attribute',kind:'ellipse'},
+  key:{label:'Key Attribute',kind:'ellipse'},
+  pkey:{label:'Partial Key (weak)',kind:'ellipse'},
+  multi:{label:'Multivalued',kind:'ellipse'},
+  derived:{label:'Derived',kind:'ellipse'},
+  rel:{label:'Relationship',kind:'diamond'},
+  identrel:{label:'Identifying Rel.',kind:'diamond'},
+  isa:{label:'ISA',kind:'triangle'}
+};
+const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA'};
+const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey','multi','derived'],pRel:['rel','identrel'],pIsa:['isa']};
+
+let state={nodes:[],edges:[],nextId:1};
+let view={x:0,y:0,k:1};
+let sel=null; // {t:'n'|'e', id}
+let tool='select';
+let history=[];
+
+const $=id=>document.getElementById(id);
+const board=$('board'), world=$('world');
+
+function el(tag,attrs,parent){
+  const e=document.createElementNS(NS,tag);
+  for(const k in attrs) e.setAttribute(k,attrs[k]);
+  if(parent) parent.appendChild(e);
+  return e;
+}
+
+/* ---------- geometry ---------- */
+function size(n){
+  const kind=TYPES[n.type].kind, tw=n.text.length*9;
+  if(kind==='rect') return {w:Math.max(120,tw+44),h:56};
+  if(kind==='ellipse') return {w:Math.max(96,tw+40),h:48};
+  if(kind==='triangle') return {w:Math.max(84,tw+56),h:66};
+  return {w:Math.max(140,tw+96),h:80};
+}
+function center(n){return {x:n.x,y:n.y}}
+function boundary(n,tx,ty){
+  const {w,h}=size(n), kind=TYPES[n.type].kind;
+  let dx=tx-n.x, dy=ty-n.y;
+  if(!dx&&!dy) dx=1;
+  let t;
+  if(kind==='rect') t=1/Math.max(Math.abs(dx)/(w/2),Math.abs(dy)/(h/2));
+  else if(kind==='ellipse') t=1/Math.hypot(dx/(w/2),dy/(h/2));
+  else if(kind==='triangle'){
+    // ray vs triangle (0,-h/2) (w/2,h/2) (-w/2,h/2), origin = bbox center
+    const P=[[0,-h/2],[w/2,h/2],[-w/2,h/2]]; t=Infinity;
+    for(let i=0;i<3;i++){
+      const [x1,y1]=P[i],[x2,y2]=P[(i+1)%3], ex=x2-x1, ey=y2-y1;
+      const den=dx*ey-dy*ex; if(Math.abs(den)<1e-9) continue;
+      const s=(dx*y1-dy*x1)/den*-1, r=(ex*y1-ey*x1)/den*-1;
+      // solve origin + r*d = P1 + s*e
+      if(r>0&&s>=0&&s<=1) t=Math.min(t,r);
+    }
+    if(!isFinite(t)) t=0;
+  }
+  else t=1/(Math.abs(dx)/(w/2)+Math.abs(dy)/(h/2));
+  return {x:n.x+dx*t,y:n.y+dy*t};
+}
+const nodeById=id=>state.nodes.find(n=>n.id===id);
+
+/* ---------- shape drawing (shared by canvas and palette icons) ---------- */
+function drawShape(g,type,w,h,text,color){
+  const kind=TYPES[type].kind, st={fill:'#fff',stroke:color,'stroke-width':2};
+  const hw=w/2, hh=h/2;
+  if(kind==='rect'){
+    el('rect',{...st,x:-hw,y:-hh,width:w,height:h,rx:2},g);
+    if(type==='weak') el('rect',{...st,'stroke-width':1.5,x:-hw+6,y:-hh+6,width:w-12,height:h-12},g);
+  }else if(kind==='ellipse'){
+    el('ellipse',{...st,rx:hw,ry:hh,'stroke-dasharray':type==='derived'?'6 4':'none'},g);
+    if(type==='multi') el('ellipse',{...st,'stroke-width':1.5,rx:hw-6,ry:hh-6},g);
+  }else if(kind==='triangle'){
+    el('polygon',{...st,points:`0,${-hh} ${hw},${hh} ${-hw},${hh}`,'stroke-linejoin':'round'},g);
+  }else{
+    const pts=(a,b)=>`0,${-b} ${a},0 0,${b} ${-a},0`;
+    el('polygon',{...st,points:pts(hw,hh),'stroke-linejoin':'round'},g);
+    if(type==='identrel') el('polygon',{...st,'stroke-width':1.5,points:pts(hw-14,hh-8),'stroke-linejoin':'round'},g);
+  }
+  if(text!=null){
+    const t=el('text',{'text-anchor':'middle','dominant-baseline':'central',y:kind==='triangle'?h*0.2:0,'font-size':kind==='triangle'?13:15,'font-family':'-apple-system,Segoe UI,Roboto,sans-serif',fill:INK,'pointer-events':'none'},g);
+    if(type==='key') t.setAttribute('text-decoration','underline');
+    if(type==='pkey') t.setAttribute('style','text-decoration:underline dashed');
+    t.textContent=text;
+  }
+}
+
+/* ---------- render ---------- */
+function applyView(){
+  world.setAttribute('transform',`translate(${view.x},${view.y}) scale(${view.k})`);
+  $('grid').setAttribute('patternTransform',`translate(${view.x},${view.y}) scale(${view.k})`);
+  $('zPct').textContent=Math.round(view.k*100)+'%';
+}
+
+function render(){
+  world.innerHTML='';
+  const eg=el('g',{},world), ng=el('g',{},world);
+  for(const e of state.edges){
+    const A=nodeById(e.a), B=nodeById(e.b); if(!A||!B) continue;
+    const isSel=sel&&sel.t==='e'&&sel.id===e.id, col=isSel?SEL:INK;
+    const pa=boundary(A,B.x,B.y), pb=boundary(B,A.x,A.y);
+    const dx=pb.x-pa.x, dy=pb.y-pa.y, len=Math.hypot(dx,dy)||1;
+    const ux=dx/len, uy=dy/len, px=-uy, py=ux;
+    const g=el('g',{'data-eid':e.id},eg);
+    el('line',{x1:pa.x,y1:pa.y,x2:pb.x,y2:pb.y,stroke:'transparent','stroke-width':16},g);
+    const offs=e.total?[-3,3]:[0];
+    for(const o of offs) el('line',{x1:pa.x+px*o,y1:pa.y+py*o,x2:pb.x+px*o,y2:pb.y+py*o,stroke:col,'stroke-width':e.total?1.6:2,'pointer-events':'none'},g);
+    const aRel=TYPES[A.type].kind==='diamond', bRel=TYPES[B.type].kind==='diamond';
+    if(e.key&&(aRel||bRel)){
+      const atB=bRel, tip=atB?pb:pa, d=atB?1:-1;
+      const bx=tip.x-ux*d*16, by=tip.y-uy*d*16;
+      el('polygon',{points:`${tip.x},${tip.y} ${bx+px*7},${by+py*7} ${bx-px*7},${by-py*7}`,fill:col,'pointer-events':'none'},g);
+    }
+    if(e.card){
+      // label near the non-relationship end
+      const nearA=!aRel||bRel, p=nearA?pa:pb, d=nearA?1:-1;
+      const lx=p.x+ux*d*26+px*16, ly=p.y+uy*d*26+py*16;
+      const t=el('text',{x:lx,y:ly,'text-anchor':'middle','dominant-baseline':'central','font-size':15,'font-weight':600,fill:col,stroke:'#f8fafc','stroke-width':4,'paint-order':'stroke','pointer-events':'none','font-family':'-apple-system,Segoe UI,sans-serif'},g);
+      t.textContent=e.card;
+    }
+  }
+  for(const n of state.nodes){
+    const {w,h}=size(n), isSel=sel&&sel.t==='n'&&sel.id===n.id;
+    const g=el('g',{'data-nid':n.id,transform:`translate(${n.x},${n.y})`,style:'cursor:'+(tool==='connect'?'crosshair':'move')},ng);
+    drawShape(g,n.type,w,h,n.text,isSel?SEL:INK);
+    if(isSel){
+      el('rect',{x:-w/2-6,y:-h/2-6,width:w+12,height:h+12,fill:'none',stroke:SEL,'stroke-dasharray':'4 3','stroke-width':1,'pointer-events':'none'},g);
+      const k=TYPES[n.type].kind;
+      if(k==='rect'||k==='diamond'){
+        const pg=el('g',{'data-plus':n.id,transform:`translate(${w/2+6},${h/2+6})`,style:'cursor:pointer'},g);
+        el('circle',{r:11,fill:SEL,stroke:'#fff','stroke-width':2},pg);
+        el('path',{d:'M-5 0H5M0 -5V5',stroke:'#fff','stroke-width':2,'stroke-linecap':'round'},pg);
+        const tt=el('title',{},pg); tt.textContent='Bağlı attribute ekle';
+      }
+    }
+  }
+  applyView();
+  localStorage.setItem('er-diagram',JSON.stringify({state,view}));
+}
+
+/* ---------- history ---------- */
+function snap(){history.push(JSON.stringify(state)); if(history.length>100) history.shift();}
+function undo(){
+  if(!history.length) return;
+  state=JSON.parse(history.pop());
+  if(sel&&!(sel.t==='n'?nodeById(sel.id):state.edges.find(e=>e.id===sel.id))) sel=null;
+  render(); updatePanel();
+}
+
+/* ---------- coordinates ---------- */
+function toWorld(cx,cy){const r=board.getBoundingClientRect();return {x:(cx-r.left-view.x)/view.k,y:(cy-r.top-view.y)/view.k};}
+const snapG=v=>Math.round(v/10)*10;
+
+/* ---------- actions ---------- */
+function addNode(type,pos){
+  snap();
+  let x,y;
+  if(pos){x=snapG(pos.x);y=snapG(pos.y);}
+  else{
+    const r=board.getBoundingClientRect();
+    const c=toWorld(r.left+r.width/2,r.top+r.height/2);
+    const jitter=state.nodes.length%6*18;
+    x=snapG(c.x+jitter); y=snapG(c.y+jitter);
+  }
+  const n={id:state.nextId++,type,x,y,text:DEFAULT_TEXT[type]};
+  state.nodes.push(n);
+  sel={t:'n',id:n.id}; render(); updatePanel();
+  setTimeout(()=>{$('pText').focus();$('pText').select();},0);
+  return n;
+}
+// "+" button: create an attribute already connected to the node
+function addAttrTo(id){
+  const p=nodeById(id); if(!p) return;
+  snap();
+  const count=state.edges.filter(e=>e.a===id||e.b===id).length;
+  const ang=(-50+count*38)*Math.PI/180, R=size(p).w/2+95+(count>6?50:0);
+  const n={id:state.nextId++,type:'attr',x:snapG(p.x+Math.cos(ang)*R),y:snapG(p.y+Math.sin(ang)*R+40),text:'attribute'};
+  state.nodes.push(n);
+  state.edges.push({id:state.nextId++,a:id,b:n.id,total:false,key:false,card:''});
+  sel={t:'n',id:n.id}; render(); updatePanel();
+  setTimeout(()=>{$('pText').focus();$('pText').select();},0);
+}
+function addEdge(a,b){
+  if(a===b) return;
+  snap();
+  const e={id:state.nextId++,a,b,total:false,key:false,card:''};
+  state.edges.push(e); sel={t:'e',id:e.id}; render(); updatePanel();
+}
+function deleteSel(){
+  if(!sel) return;
+  snap();
+  if(sel.t==='n'){state.nodes=state.nodes.filter(n=>n.id!==sel.id);state.edges=state.edges.filter(e=>e.a!==sel.id&&e.b!==sel.id);}
+  else state.edges=state.edges.filter(e=>e.id!==sel.id);
+  sel=null; render(); updatePanel();
+}
+function setTool(t){
+  tool=t; board.classList.toggle('connect',t==='connect');
+  $('tSelect').classList.toggle('active',t==='select');
+  $('tConnect').classList.toggle('active',t==='connect');
+  render();
+}
+
+/* ---------- pointer interaction ---------- */
+let drag=null, pan=null, conn=null, tempLine=null;
+board.addEventListener('pointerdown',ev=>{
+  if(ev.target.closest('.panel')) return;
+  const plus=ev.target.closest('[data-plus]');
+  if(plus){ev.preventDefault();addAttrTo(+plus.dataset.plus);return;}
+  board.setPointerCapture(ev.pointerId);
+  const w=toWorld(ev.clientX,ev.clientY);
+  const nh=ev.target.closest('[data-nid]'), eh=ev.target.closest('[data-eid]');
+  if(nh){
+    const id=+nh.dataset.nid, n=nodeById(id);
+    if(tool==='connect'){
+      conn={from:id};
+      tempLine=el('line',{x1:n.x,y1:n.y,x2:w.x,y2:w.y,stroke:SEL,'stroke-width':2,'stroke-dasharray':'5 4','pointer-events':'none'},world);
+    }else{
+      sel={t:'n',id}; drag={id,ox:w.x-n.x,oy:w.y-n.y,moved:false}; render(); updatePanel();
+    }
+  }else if(eh&&tool==='select'){
+    sel={t:'e',id:+eh.dataset.eid}; render(); updatePanel();
+  }else{
+    if(sel){sel=null;render();updatePanel();}
+    pan={sx:ev.clientX,sy:ev.clientY,vx:view.x,vy:view.y}; board.classList.add('pan');
+  }
+});
+board.addEventListener('pointermove',ev=>{
+  const w=toWorld(ev.clientX,ev.clientY);
+  if(drag){
+    const n=nodeById(drag.id);
+    if(!drag.moved){snap();drag.moved=true;}
+    n.x=snapG(w.x-drag.ox); n.y=snapG(w.y-drag.oy); render();
+  }else if(conn&&tempLine){
+    tempLine.setAttribute('x2',w.x); tempLine.setAttribute('y2',w.y);
+  }else if(pan){
+    view.x=pan.vx+ev.clientX-pan.sx; view.y=pan.vy+ev.clientY-pan.sy; applyView();
+  }
+});
+board.addEventListener('pointerup',ev=>{
+  if(conn){
+    const t=document.elementFromPoint(ev.clientX,ev.clientY)?.closest('[data-nid]');
+    if(tempLine) tempLine.remove();
+    if(t) addEdge(conn.from,+t.dataset.nid);
+    conn=null; tempLine=null;
+  }
+  drag=null; pan=null; board.classList.remove('pan');
+  render();
+});
+board.addEventListener('dblclick',ev=>{
+  const nh=ev.target.closest('[data-nid]');
+  if(nh){sel={t:'n',id:+nh.dataset.nid};render();updatePanel();$('pText').focus();$('pText').select();}
+});
+function zoomAt(cx,cy,f){
+  const r=board.getBoundingClientRect(), mx=cx-r.left, my=cy-r.top;
+  const k=Math.min(4,Math.max(.15,view.k*f)), real=k/view.k;
+  view.x=mx-(mx-view.x)*real; view.y=my-(my-view.y)*real; view.k=k; applyView();
+}
+board.addEventListener('wheel',ev=>{
+  ev.preventDefault();
+  if(ev.ctrlKey||ev.metaKey) zoomAt(ev.clientX,ev.clientY,Math.exp(-ev.deltaY*0.01));
+  else{view.x-=ev.deltaX; view.y-=ev.deltaY; applyView();}
+},{passive:false});
+
+/* ---------- properties panel ---------- */
+function updatePanel(){
+  const p=$('props');
+  if(!sel){p.style.display='none';return;}
+  p.style.display='block';
+  $('nodeProps').style.display=sel.t==='n'?'block':'none';
+  $('edgeProps').style.display=sel.t==='e'?'block':'none';
+  if(sel.t==='n'){
+    const n=nodeById(sel.id); $('pText').value=n.text; $('pType').value=n.type;
+  }else{
+    const e=state.edges.find(e=>e.id===sel.id);
+    $('pTotal').checked=e.total; $('pKey').checked=e.key; $('pCard').value=e.card;
+  }
+}
+const curEdge=()=>state.edges.find(e=>e.id===sel.id);
+$('pText').addEventListener('focus',snap);
+$('pText').addEventListener('input',e=>{nodeById(sel.id).text=e.target.value;render();});
+$('pText').addEventListener('keydown',e=>{if(e.key==='Enter')e.target.blur();});
+$('pType').addEventListener('change',e=>{snap();nodeById(sel.id).type=e.target.value;render();});
+$('pTotal').addEventListener('change',e=>{snap();curEdge().total=e.target.checked;render();});
+$('pKey').addEventListener('change',e=>{snap();curEdge().key=e.target.checked;render();});
+$('pCard').addEventListener('focus',snap);
+$('pCard').addEventListener('input',e=>{curEdge().card=e.target.value;render();});
+$('pCard').addEventListener('keydown',e=>{if(e.key==='Enter')e.target.blur();});
+$('pDel').addEventListener('click',deleteSel);
+for(const t in TYPES){const o=document.createElement('option');o.value=t;o.textContent=TYPES[t].label;$('pType').appendChild(o);}
+
+/* ---------- palette drag & drop ---------- */
+function startPaletteDrag(ev,type,btn){
+  if(ev.button!==0) return;
+  ev.preventDefault();
+  const sx=ev.clientX, sy=ev.clientY; let ghost=null;
+  const move=e=>{
+    if(!ghost&&Math.hypot(e.clientX-sx,e.clientY-sy)>6){
+      const k=TYPES[type].kind, {w,h}=size({type,text:DEFAULT_TEXT[type]});
+      ghost=document.createElement('div');
+      ghost.style.cssText='position:fixed;pointer-events:none;z-index:99;opacity:.75;transform:translate(-50%,-50%)';
+      const svg=document.createElementNS(NS,'svg');
+      svg.setAttribute('width',(w+8)*view.k);svg.setAttribute('height',(h+8)*view.k);
+      svg.setAttribute('viewBox',`${-w/2-4} ${-h/2-4} ${w+8} ${h+8}`);
+      drawShape(el('g',{},svg),type,w,h,DEFAULT_TEXT[type],SEL);
+      ghost.appendChild(svg); document.body.appendChild(ghost);
+    }
+    if(ghost){ghost.style.left=e.clientX+'px';ghost.style.top=e.clientY+'px';}
+  };
+  const up=e=>{
+    removeEventListener('pointermove',move); removeEventListener('pointerup',up);
+    if(!ghost){addNode(type);return;} // plain click
+    ghost.remove();
+    const over=document.elementFromPoint(e.clientX,e.clientY);
+    if(over&&!over.closest('.panel')) addNode(type,toWorld(e.clientX,e.clientY));
+  };
+  addEventListener('pointermove',move); addEventListener('pointerup',up);
+}
+
+/* ---------- palette ---------- */
+for(const gid in GROUPS) for(const type of GROUPS[gid]){
+  const b=document.createElement('button'); b.className='btn';
+  const svg=document.createElementNS(NS,'svg'); svg.setAttribute('width',40);svg.setAttribute('height',26);svg.setAttribute('viewBox','-20 -13 40 26');
+  const g=el('g',{},svg);
+  const k=TYPES[type].kind;
+  drawShape(g,type,k==='rect'?34:k==='ellipse'?34:36,k==='diamond'?24:20,null,INK);
+  b.appendChild(svg); b.append(TYPES[type].label);
+  b.style.touchAction='none';
+  b.addEventListener('pointerdown',ev=>startPaletteDrag(ev,type,b));
+  $(gid).appendChild(b);
+}
+$('tSelect').onclick=()=>setTool('select');
+$('tConnect').onclick=()=>setTool('connect');
+
+/* ---------- top bar ---------- */
+$('bUndo').onclick=undo;
+$('zIn').onclick=()=>{const r=board.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,1.2);};
+$('zOut').onclick=()=>{const r=board.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.2);};
+function bbox(){
+  if(!state.nodes.length) return null;
+  let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
+  for(const n of state.nodes){const {w,h}=size(n);x1=Math.min(x1,n.x-w/2);y1=Math.min(y1,n.y-h/2);x2=Math.max(x2,n.x+w/2);y2=Math.max(y2,n.y+h/2);}
+  return {x1,y1,x2,y2};
+}
+function fit(){
+  const b=bbox(); if(!b) return;
+  const r=board.getBoundingClientRect(), pad=120;
+  const k=Math.min(2,Math.min((r.width-2*pad)/(b.x2-b.x1||1),(r.height-2*pad)/(b.y2-b.y1||1)));
+  view.k=Math.max(.15,k);
+  view.x=r.width/2-(b.x1+b.x2)/2*view.k; view.y=r.height/2-(b.y1+b.y2)/2*view.k; applyView();
+}
+$('bFit').onclick=fit;
+function svgString(){
+  const prev=sel; sel=null; render();
+  const b=bbox()||{x1:0,y1:0,x2:200,y2:100}, m=40;
+  const W=b.x2-b.x1+2*m, H=b.y2-b.y1+2*m;
+  const clone=world.cloneNode(true);
+  clone.setAttribute('transform',`translate(${-b.x1+m},${-b.y1+m})`);
+  clone.querySelectorAll('[style*=cursor]').forEach(n=>n.removeAttribute('style'));
+  const s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#fff"/>${clone.outerHTML}</svg>`;
+  sel=prev; render();
+  return {s,W,H};
+}
+function download(name,blob){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+$('bSvg').onclick=()=>download('er-diagram.svg',new Blob([svgString().s],{type:'image/svg+xml'}));
+$('bPng').onclick=()=>{
+  const {s,W,H}=svgString(), img=new Image();
+  img.onload=()=>{const c=document.createElement('canvas');c.width=W*2;c.height=H*2;const x=c.getContext('2d');x.scale(2,2);x.drawImage(img,0,0);c.toBlob(b=>download('er-diagram.png',b));};
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(s);
+};
+$('bSave').onclick=()=>download('er-diagram.json',new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));
+$('bLoad').onclick=()=>$('file').click();
+$('file').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  f.text().then(t=>{
+    try{const s=JSON.parse(t); if(!Array.isArray(s.nodes)||!Array.isArray(s.edges)) throw 0; snap(); state=s; sel=null; render(); updatePanel(); fit();}
+    catch{alert('Geçersiz dosya');}
+  });
+  e.target.value='';
+};
+$('bClear').onclick=()=>{if(confirm('Tüm diyagram silinsin mi?')){snap();state={nodes:[],edges:[],nextId:1};sel=null;render();updatePanel();}};
+
+/* ---------- keyboard ---------- */
+addEventListener('keydown',e=>{
+  const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName);
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!typing){e.preventDefault();undo();return;}
+  if(typing) return;
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();deleteSel();}
+  else if(e.key==='v'||e.key==='V') setTool('select');
+  else if(e.key==='c'||e.key==='C') setTool('connect');
+  else if(e.key==='Escape'){sel=null;render();updatePanel();}
+});
+
+/* ---------- init ---------- */
+try{
+  const saved=JSON.parse(localStorage.getItem('er-diagram')||'null');
+  if(saved){state=saved.state;view=saved.view||view;}
+}catch{}
+if(!state.nodes.length){
+  // small starter example
+  const N=(type,x,y,text)=>{const n={id:state.nextId++,type,x,y,text};state.nodes.push(n);return n.id;};
+  const emp=N('entity',-220,0,'Employee'), dep=N('weak',280,0,'Dependent'), rel=N('identrel',30,0,'has');
+  const id=N('key',-300,-100,'ssn'), nm=N('attr',-140,-100,'name');
+  const dn=N('pkey',360,-100,'dep_name');
+  const E=(a,b,o={})=>state.edges.push({id:state.nextId++,a,b,total:false,key:false,card:'',...o});
+  E(emp,rel,{card:'1',key:true}); E(dep,rel,{card:'N',total:true}); E(emp,id); E(emp,nm); E(dep,dn);
+  view={x:innerWidth/2-30,y:innerHeight/2,k:1};
+}
+setTool('select'); render(); updatePanel();
+</script>
+</body>
+</html>
