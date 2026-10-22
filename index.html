@@ -102,16 +102,14 @@ const TYPES={
   attr:{label:'Attribute',kind:'ellipse'},
   key:{label:'Key Attribute',kind:'ellipse'},
   pkey:{label:'Partial Key (weak)',kind:'ellipse'},
-  multi:{label:'Multivalued',kind:'ellipse'},
-  derived:{label:'Derived',kind:'ellipse'},
   rel:{label:'Relationship',kind:'diamond'},
   identrel:{label:'Weak Relationship',kind:'diamond'},
   isa:{label:'ISA',kind:'triangle'},
   frame:{label:'Kutu (Aggregation)',kind:'frame'},
   freeform:{label:'Serbest Kutu',kind:'freeform'}
 };
-const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',multi:'multi',derived:'derived',rel:'relates',identrel:'identifies',isa:'ISA',frame:'',freeform:''};
-const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey','multi','derived'],pRel:['rel','identrel'],pIsa:['isa','frame']};
+const DEFAULT_TEXT={entity:'Entity',weak:'Weak Entity',attr:'attribute',key:'id',pkey:'partial_key',rel:'relates',identrel:'identifies',isa:'ISA',frame:'',freeform:''};
+const GROUPS={pEnt:['entity','weak'],pAttr:['attr','key','pkey'],pRel:['rel','identrel'],pIsa:['isa','frame']};
 
 let state={nodes:[],edges:[],nextId:1};
 let view={x:0,y:0,k:1};
@@ -194,8 +192,7 @@ function drawShape(g,type,w,h,text,color,pts){
   }else if(kind==='rect'){
     el('rect',{...st,x:-hw,y:-hh,width:w,height:h,rx:2},g);
   }else if(kind==='ellipse'){
-    el('ellipse',{...st,rx:hw,ry:hh,'stroke-dasharray':type==='derived'?'6 4':'none'},g);
-    if(type==='multi') el('ellipse',{...st,'stroke-width':1.5,rx:hw-6,ry:hh-6},g);
+    el('ellipse',{...st,rx:hw,ry:hh},g);
   }else if(kind==='triangle'){
     el('polygon',{...st,points:`0,${-hh} ${hw},${hh} ${-hw},${hh}`,'stroke-linejoin':'round'},g);
   }else{
