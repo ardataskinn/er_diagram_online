@@ -199,7 +199,16 @@ function render(){
   for(const e of state.edges){
     const A=nodeById(e.a), B=nodeById(e.b); if(!A||!B) continue;
     const isSel=sel&&sel.t==='e'&&sel.id===e.id, col=isSel?SEL:INK;
-    const pa=boundary(A,B.x,B.y), pb=boundary(B,A.x,A.y);
+    const same=state.edges.filter(x=>(x.a===e.a&&x.b===e.b)||(x.a===e.b&&x.b===e.a));
+    let off=0;
+    if(same.length>1){
+      // consistent perpendicular direction regardless of edge orientation
+      const lo=Math.min(e.a,e.b), hi=Math.max(e.a,e.b), P=nodeById(lo), Q=nodeById(hi);
+      const l=Math.hypot(Q.x-P.x,Q.y-P.y)||1, qx=-(Q.y-P.y)/l, qy=(Q.x-P.x)/l;
+      off=(same.indexOf(e)-(same.length-1)/2)*34;
+      var sx=qx*off, sy=qy*off;
+    }else{var sx=0, sy=0;}
+    const pa=boundary(A,B.x+sx,B.y+sy), pb=boundary(B,A.x+sx,A.y+sy);
     const dx=pb.x-pa.x, dy=pb.y-pa.y, len=Math.hypot(dx,dy)||1;
     const ux=dx/len, uy=dy/len, px=-uy, py=ux;
     const g=el('g',{'data-eid':e.id},eg);
